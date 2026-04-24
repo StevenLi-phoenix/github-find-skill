@@ -1,6 +1,6 @@
 ---
 name: github-find
-description: Search GitHub for libraries, tools, reference implementations, working code examples, agent skills, GitHub Actions, dotfiles, project templates, or any open-source resource. Use whenever the user wants to find an existing package, recommend a third-party library, verify whether a tool exists, or discover prior art - anything of the form "is there a X for Y", "find me a X", "what's the best X", "show me an example of X", or when the assistant is about to propose a specific library name and should verify it against live data. Wraps the gh CLI with a multi-query expansion, parallel fan-out, and rank-by-stars-and-recency workflow so one intent returns a vetted shortlist instead of a raw search dump.
+description: Search GitHub for libraries, tools, reference implementations, working code examples, agent skills, MCP servers, GitHub Actions, dotfiles, project templates, CSS/HTML templates, or any open-source resource. Use whenever the user wants to find an existing package, recommend a third-party library, verify whether a tool exists, or discover prior art - anything of the form "is there a X for Y", "find me a X", "what's the best X", "show me an example of X", or when the assistant is about to propose a specific library name and should verify it against live data. Wraps the gh CLI with a multi-query expansion, parallel fan-out, and rank-by-stars-and-recency workflow so one intent returns a vetted shortlist. If the user then asks to install or persist a found resource locally (a skill, MCP server, template, dotfile bundle, etc.), this skill also handles a consent-gated clone flow - it detects the resource type, shows the exact destination and command, and never writes to disk without an explicit user yes.
 ---
 
 # github-find
@@ -86,6 +86,97 @@ If a candidate's README reveals it's deprecated, archived, or only a prototype, 
 ```
 
 End with a one-sentence recommendation tied to the user's implied priority (stability vs. recency vs. features vs. license).
+
+### 6. Install / persist a found resource (consent-gated)
+
+A repo you surfaced might be many things: a Claude Code skill, an MCP server, a static HTML/CSS template, a dotfile bundle, a library, a GitHub Action, or a one-off reference. Each has its own "persist to local" pattern. This step handles them generically, with one rule for all of them.
+
+**Hard rule**: never `git clone`, download, or write files to the user's disk without an explicit direct "yes" to a plan you showed first. Silence, "sure" on an unrelated topic, and "sounds good" about the *recommendation* itself are not consent. Consent must be a direct answer to the install prompt in step 6.2.
+
+#### 6.1. Trigger and resource-type detection
+
+Enter this step only when the user explicitly asks to install, save, persist, clone, or "固化" a specific candidate ("install it", "let's use the first one", "clone that", "let me keep a copy"). If they haven't asked, stop at step 5.
+
+Classify the repo using what you already know. If still ambiguous, do one cheap read:
+
+```bash
+gh api /repos/<owner>/<name>/contents --jq '.[] | .name' | head -30
+```
+
+| Signal at repo root | Resource type | Default persist path |
+|---|---|---|
+| Valid `SKILL.md` with proper frontmatter (`name:` + `description:`) | Claude Code skill | `~/.claude/skills/<skill-name>/` (user) **or** `.claude/skills/<skill-name>/` (project) |
+| `.mcp.json`, `server.json`, or README says "MCP server" | MCP server source | User-chosen path; then point them at the `settings.json` / `.mcp.json` registration step |
+| `action.yml` at root | GitHub Action | Not installable locally - give them the `uses: <owner>/<name>@<ref>` line for their workflow |
+| `pyproject.toml` / `setup.py` / `package.json` with `bin`/`main` / `Cargo.toml` with `[bin]` / `go.mod` | Installable package | Surface the canonical install command - do **not** execute it |
+| Template / scaffolding (HTML, CSS, mostly static files) | Template | User-chosen path |
+| Dotfiles, shell scripts, config bundles | Config bundle | User-chosen path |
+| None of the above clearly | Unclear | Ask the user where to clone, or which specific files to fetch |
+
+For the **Installable package** row: tell the user the command (`pip install pypdf`, `cargo install ripgrep`, `npm install -g @anthropic-ai/claude-code`, `docker pull <image>`) and stop. Package-manager installs run arbitrary build scripts from the target; users should run those inside their own environment (venv, project dir), not through the agent.
+
+#### 6.2. Show the exact plan, then ask
+
+Fill in the placeholders for the detected type and print this block:
+
+```
+Persist plan:
+  Repo:        <owner>/<name>
+  Type:        skill | mcp-server | template | dotfiles | package | action | other
+  Destination: <absolute or relative path, or "n/a" if plan is just to show instructions>
+  Command:     <the exact shell command that will run, or "n/a">
+
+Reminder: cloning executes no scripts, but the cloned repo may still
+contain code you don't want on disk. For skills / MCP servers, enabling
+them lets agent tools with your credentials invoke whatever they
+prescribe. Audit the repo before trusting it for sensitive work.
+
+Install? Reply: `yes`, `no`, or specify a different path.
+```
+
+Placement rules:
+
+- **Claude Code skills**: default to `~/.claude/skills/<skill-name>/` (user-level) and offer `.claude/skills/<skill-name>/` (project-level) as an alternative. `<skill-name>` comes from the SKILL.md frontmatter's `name:` field, *not* the repo name. If the frontmatter is malformed or uses a reserved word (contains `anthropic` or `claude`) or exceeds limits (`name` > 64 chars or `description` > 1024 chars), stop and tell the user.
+- **MCP servers / templates / dotfiles**: ask for the destination explicitly; do not invent one.
+- **Packages / actions**: plan is "show install/usage snippet only". `Destination` = n/a, `Command` = n/a. Print the snippet inside the plan block.
+
+#### 6.3. Act only on unambiguous consent
+
+- `yes` → run the exact command shown.
+- Different path provided → update the plan, re-show, ask again.
+- `no`, silence, deflection, a change of topic, or anything ambiguous → **do not proceed**. Say "Skipped. No files changed." and stop.
+
+Before running, verify the destination doesn't already exist. If it does, stop and ask: pick a different name, overwrite (requires a second explicit yes), or cancel.
+
+#### 6.4. Run and report
+
+```bash
+# Claude Code skill (user-level)
+mkdir -p ~/.claude/skills && git clone https://github.com/<owner>/<name>.git ~/.claude/skills/<skill-name>
+
+# Claude Code skill (project-level)
+mkdir -p .claude/skills && git clone https://github.com/<owner>/<name>.git .claude/skills/<skill-name>
+
+# MCP server / template / dotfiles (user-chosen path)
+git clone https://github.com/<owner>/<name>.git <user-chosen-path>
+```
+
+After cloning, print a type-appropriate "next steps" line:
+
+- Skill: `Cloned <owner>/<name> → <dest>. Claude Code picks it up on next session; skim SKILL.md to know when it will trigger.`
+- MCP server: `Cloned <owner>/<name> → <dest>. Register in your ~/.claude/settings.json or project .mcp.json - see the repo README for the exact config.`
+- Template / dotfiles: `Cloned <owner>/<name> → <dest>. Open <dest>/README.md for usage.`
+
+Do **not** execute anything inside the cloned repo: no `pip install -r`, no `npm install`, no running setup scripts. The clone is the end state this skill delivers.
+
+#### 6.5. Forbidden
+
+- Don't install without explicit consent, ever.
+- Don't install multiple candidates in one confirmation - one clone per yes.
+- Don't run package-manager commands (pip / npm / cargo / go / docker) on the user's behalf, even with consent. Surface the command and stop.
+- Don't install from a fork without calling it out and letting the user reconsider.
+- Don't silently overwrite an existing destination.
+- Don't persist a skill whose SKILL.md frontmatter is invalid (reserved words, length limits) - these won't load cleanly and the user probably wants the canonical upstream.
 
 ## Language / topic / filename hints
 

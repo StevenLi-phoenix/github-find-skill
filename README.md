@@ -28,7 +28,7 @@ When triggered, it:
 ### As a personal skill (Claude Code)
 
 ```bash
-git clone https://github.com/<your-username>/github-find-skill.git ~/.claude/skills/github-find
+git clone https://github.com/StevenLi-phoenix/github-find-skill.git ~/.claude/skills/github-find
 ```
 
 Claude Code discovers SKILL.md files under `~/.claude/skills/` automatically; no restart needed.
@@ -36,7 +36,7 @@ Claude Code discovers SKILL.md files under `~/.claude/skills/` automatically; no
 ### As a project skill
 
 ```bash
-git clone https://github.com/<your-username>/github-find-skill.git .claude/skills/github-find
+git clone https://github.com/StevenLi-phoenix/github-find-skill.git .claude/skills/github-find
 ```
 
 Checks in a `.claude/skills/github-find/` alongside your project so teammates get the same behavior.
@@ -65,7 +65,8 @@ See [SKILL.md](./SKILL.md) for the full trigger list, workflow, and examples.
 This skill is provided as-is, with no warranty. Before using it, understand:
 
 - **It is a prompt-level wrapper, not a sandbox.** It tells Claude to run `gh` CLI commands on your behalf. Those commands use your existing `gh` authentication and are subject to your token's scopes and GitHub's rate limits. Review [SKILL.md](./SKILL.md) in full before installing.
-- **It does not install, clone, or execute any repository it recommends.** The skill only *reads* GitHub (search + readme fetch). Cloning, installing, or running any code it points at remains your decision and your responsibility.
+- **By default it only reads GitHub** (search + README fetch). It never clones a repo, installs a package, or runs code without asking.
+- **Persisting any found resource to disk is opt-in.** A found repo might be a Claude Code skill, an MCP server, a CSS/HTML template, a dotfile bundle, a library, a GitHub Action, or a one-off reference. If you ask to install / clone / "固化" one, the skill will detect the resource type, show you the exact command and destination, and wait for your explicit "yes" before running. See the *Install / persist a found resource (consent-gated)* section of [SKILL.md](./SKILL.md). No silent clones. No batch installs. Package-manager commands (`pip install`, `npm install`, `cargo install`, `docker pull`, ...) are surfaced but never executed on your behalf.
 - **GitHub search is a popularity + recency signal, not a quality signal.** A well-ranked result is not a vouched-for result. Audit any repo before importing it into your project, especially anything that runs at build time, ships binaries, or asks for credentials.
 - **You are responsible for license compatibility.** The skill surfaces `license` where GitHub exposes it, but absence of a license field does not mean the repo is permissively licensed. Verify before use.
 - **Third-party skills (including this one) should themselves be audited.** See [Anthropic's security guidance on Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview#security-considerations). Read the SKILL.md, understand the tool calls it prescribes, and only install from sources you trust.
