@@ -95,7 +95,7 @@ A repo you surfaced might be many things: a Claude Code skill, an MCP server, a 
 
 #### 6.1. Trigger and resource-type detection
 
-Enter this step only when the user explicitly asks to install, save, persist, clone, or "固化" a specific candidate ("install it", "let's use the first one", "clone that", "let me keep a copy"). If they haven't asked, stop at step 5.
+Enter this step only when the user explicitly asks to install, save, persist, or clone a specific candidate ("install it", "let's use the first one", "clone that", "let me keep a copy"). If they haven't asked, stop at step 5.
 
 Classify the repo using what you already know. If still ambiguous, do one cheap read:
 
